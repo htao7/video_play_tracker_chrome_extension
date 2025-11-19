@@ -10,7 +10,13 @@
 
     // Check if tracking is enabled for this URL
     function checkTrackingStatus() {
-        const currentURL = window.location.href;  // Get URL dynamically each time
+        // If we're in an iframe, try to use the parent's URL (via referrer)
+        // Otherwise use current URL
+        let currentURL = window.location.href;
+        if (window.self !== window.top && document.referrer) {
+            currentURL = document.referrer;
+        }
+
         chrome.storage.local.get(['trackedURLs', 'videoHistory'], function (result) {
             const trackedURLs = result.trackedURLs || [];
             const videoHistory = result.videoHistory || [];
@@ -50,14 +56,28 @@
             return;
         }
 
+        // If we're in an iframe, use the parent's URL (via referrer)
+        let url = window.location.href;
+        let title = document.title;
+
+        if (window.self !== window.top && document.referrer) {
+            url = document.referrer;
+            // When in iframe, use hostname from parent URL instead of iframe title
+            try {
+                title = new URL(url).hostname;
+            } catch (e) {
+                title = 'Video';
+            }
+        }
+
         const data = {
-            url: window.location.href,
-            title: document.title || window.location.hostname,
+            url: url,
+            title: title || window.location.hostname,
             currentTime: Math.floor(video.currentTime),
             duration: Math.floor(video.duration),
             formattedTime: formatTime(video.currentTime),
             timestamp: Date.now(),
-            hostname: window.location.hostname
+            hostname: new URL(url).hostname
         };
 
         chrome.storage.local.get(['videoHistory'], function (result) {
@@ -67,8 +87,12 @@
             const existingIndex = history.findIndex(item => item.url === data.url);
 
             if (existingIndex >= 0) {
-                // Update existing entry
-                history[existingIndex] = data;
+                // Update existing entry but preserve the original title
+                const existingTitle = history[existingIndex].title;
+                history[existingIndex] = {
+                    ...data,
+                    title: existingTitle || data.title  // Keep original title
+                };
             } else {
                 // Add new entry
                 history.unshift(data);
